@@ -1,4 +1,5 @@
 # Auto-installed plugin material — reconstituted by installers on restore
 .config/fish/functions/
-.config/fish/conf.d/
+.config/fish/conf.d/_*
+.config/fish/conf.d/atuin.env.fish
 .config/atuin/
