@@ -83,82 +83,42 @@ Same as above, plus:
 
 ---
 
-## YubiKey FIDO2 SSH — full setup
+## YubiKey FIDO2 SSH
 
 Architecture: **generate and hold the key on the Windows side** (Windows
 OpenSSH has native FIDO2 support — no USB passthrough into WSL, no re-attach
 after undock/sleep/reboot) and **bridge Windows' ssh-agent socket into WSL**.
-Same key works from Windows terminals, WSL, and any other OS you plug the
-YubiKey into.
+Same YubiKey works from Windows terminals, WSL, and any other OS you plug
+the token into.
 
-**What you end up with**: touch (+ PIN, if `verify-required` is set) once per
-`ControlPersist` window, then every subsequent SSH / git / Claude Code
+**What you end up with**: touch (+ PIN, if `verify-required` is set) once
+per `ControlPersist` window, then every subsequent SSH / git / Claude Code
 subprocess reuses the multiplexed connection silently. The key never has a
-passphrase — protection comes from the hardware token + PIN + physical touch.
+passphrase — protection is hardware token + PIN + physical touch.
 
-### 0. Prep the YubiKey
+---
 
-Firmware ≥ 5.2.3 required for `ed25519-sk`. Check in Yubico Authenticator's
-home screen. Set a FIDO2 PIN if you haven't already:
+### Adding this key to a new machine (the flow you'll actually run)
 
-```
-ykman fido access change-pin
-```
+The everyday case: you already have your YubiKey with the credential
+provisioned (from the "First-time provisioning" section below) and you're
+setting up a second machine — work laptop, homelab jump box, whatever.
+**No secret material moves.** The token stays where it is; you regenerate
+the on-disk stub file from the token itself.
 
-### 1. Generate the key — on Windows, not WSL
+Prereqs on the new machine:
 
-Windows OpenSSH ≥ 8.9 is required. Check `ssh -V` in PowerShell.
+- YubiKey plugged in, unlocked (know your FIDO2 PIN).
+- Linux side of the [restore story](#on-a-linux-box-wsl-arch-ubuntu-)
+  above already run → chezmoi has laid down `~/.ssh/config`, the fish
+  agent-bridge, everything.
+- Windows OpenSSH client installed (built-in on Windows 10/11; check
+  `ssh -V` ≥ 8.9).
 
-```powershell
-ssh-keygen -t ed25519-sk `
-  -O resident `
-  -O verify-required `
-  -O application=ssh:josef `
-  -C "josef-ssh-key" `
-  -f C:\Users\josef\.ssh\id_ed25519_josef-ssh-key
-```
+#### 1. On Windows — `npiperelay` + `ssh-agent`
 
-You'll get a touch + PIN prompt twice (once to unlock, once to confirm
-generation). Two files land in `C:\Users\josef\.ssh\`:
-
-- `id_ed25519_josef-ssh-key` — **stub / key handle only.** No secret material
-  in it; the actual private key lives in the token's secure element.
-- `id_ed25519_josef-ssh-key.pub` — public key, safe to distribute.
-
-Options in play:
-
-- **`-O resident`** — the credential also lives *on* the YubiKey. If the stub
-  file is ever gone (fresh machine, wiped `.ssh`), pull it back with
-  `ssh-keygen -K` using just the token + PIN — no backup needed.
-- **`-O verify-required`** — PIN is demanded at every new SSH auth. Combined
-  with `ControlPersist 4h` below, this is one PIN per ~4h idle window.
-  Drop this flag if you want touch-only.
-- **`-O application=ssh:josef`** — the credential's application id on the
-  token. Namespacing lets you have multiple SSH keys on one YubiKey (e.g.
-  `ssh:josef`, `ssh:work-only`).
-- **No passphrase** — omitted deliberately. The key is worthless without the
-  physical YubiKey; a disk passphrase would add nothing here.
-
-### 2. Load the key into Windows' ssh-agent
-
-```powershell
-Set-Service -Name ssh-agent -StartupType Automatic
-Start-Service ssh-agent
-ssh-add C:\Users\josef\.ssh\id_ed25519_josef-ssh-key
-```
-
-Confirm:
-
-```powershell
-ssh-add -L
-# → sk-ssh-ed25519@openssh.com AAAA…== josef-ssh-key
-```
-
-### 3. Bridge the agent socket into Linux
-
-Get `npiperelay.exe` from [jstarks/npiperelay] and drop it at a **fixed,
-non-user-specific path** so chezmoi-managed shell configs work across users
-without templating:
+Grab `npiperelay.exe` from [jstarks/npiperelay] and drop it at the fixed
+path the tracked bridge expects (this must match on every machine):
 
 [jstarks/npiperelay]: https://github.com/jstarks/npiperelay
 
@@ -167,17 +127,140 @@ mkdir C:\Tools 2>$null
 Copy-Item .\npiperelay.exe C:\Tools\npiperelay.exe
 ```
 
-In WSL (or any Linux terminal on the Windows host):
+Turn on Windows' ssh-agent service (idempotent):
 
-```bash
-sudo apt install -y socat   # Debian/Ubuntu
-# sudo pacman -S socat      # Arch (Arch box outside WSL doesn't need the bridge at all — see below)
+```powershell
+Set-Service -Name ssh-agent -StartupType Automatic
+Start-Service ssh-agent
 ```
 
-#### Fish (this repo's default) — already in place
+#### 2. Pull the stub file from the YubiKey — no file transfer
 
-`~/.config/fish/conf.d/ssh-agent-bridge.fish` is tracked in this repo. It
-runs on every fish start:
+Because the credential was generated with `-O resident`, the YubiKey itself
+holds enough to reconstruct the stub. From a new PowerShell in
+`C:\Users\<user>\.ssh`:
+
+```powershell
+cd $HOME\.ssh
+ssh-keygen -K
+# → touch + PIN → writes: id_ed25519_sk_ssh_josef and id_ed25519_sk_ssh_josef.pub
+```
+
+`ssh-keygen -K` dumps every resident credential; each gets a name derived
+from its `application=` value (`ssh_josef` for `ssh:josef`). Rename to
+match what `~/.ssh/config` references:
+
+```powershell
+Move-Item id_ed25519_sk_ssh_josef      id_ed25519_josef-ssh-key
+Move-Item id_ed25519_sk_ssh_josef.pub  id_ed25519_josef-ssh-key.pub
+```
+
+#### 3. Register with Windows' ssh-agent
+
+```powershell
+ssh-add $HOME\.ssh\id_ed25519_josef-ssh-key
+ssh-add -L
+# → sk-ssh-ed25519@openssh.com AAAA…== josef-ssh-key
+```
+
+#### 4. On the Linux side — hydrate the stub + sockets dir
+
+`~/.ssh/config`'s `IdentityFile` needs the stub file present, even though
+signing runs through the agent. Copy from Windows:
+
+```bash
+cp /mnt/c/Users/<user>/.ssh/id_ed25519_josef-ssh-key* ~/.ssh/
+chmod 600 ~/.ssh/id_ed25519_josef-ssh-key
+chmod 644 ~/.ssh/id_ed25519_josef-ssh-key.pub
+mkdir -p ~/.ssh/sockets && chmod 700 ~/.ssh/sockets
+sudo apt install -y socat   # or: sudo pacman -S socat
+```
+
+#### 5. Open a new fish shell — bridge auto-spawns — verify
+
+```bash
+ssh-add -l
+# → 256 SHA256:… josef-ssh-key (ED25519-SK)   ← Windows agent, via bridge
+ssh -T git@github.com
+# → Hi <you>! You've successfully authenticated…
+```
+
+Same key, no cross-syncing of secrets, `authorized_keys` on your servers
+already recognizes it. VPN into home (Wireguard/Tailscale) → `ssh homelab-host`
+→ touch YubiKey plugged into the work laptop → in.
+
+---
+
+### First-time provisioning of a new YubiKey (documented for the record)
+
+This is the one-time credential generation. On any second-or-later
+machine, use **"Adding this key to a new machine"** above instead — no
+regeneration needed.
+
+#### 0. Prep the YubiKey
+
+Firmware ≥ 5.2.3 required for `ed25519-sk`. Check the version in Yubico
+Authenticator's home screen. Set a FIDO2 PIN if you haven't already:
+
+```
+ykman fido access change-pin
+```
+
+#### 1. Generate the credential — on Windows, not WSL
+
+Windows OpenSSH ≥ 8.9 is required (check `ssh -V` in PowerShell).
+
+```powershell
+ssh-keygen -t ed25519-sk `
+  -O resident `
+  -O verify-required `
+  -O application=ssh:josef `
+  -C "josef-ssh-key" `
+  -f $HOME\.ssh\id_ed25519_josef-ssh-key
+```
+
+You'll get a touch + PIN prompt twice (once to unlock the token, once to
+confirm generation). Two files land in `%USERPROFILE%\.ssh\`:
+
+- `id_ed25519_josef-ssh-key` — **stub / key handle only.** No secret in it;
+  the actual private key lives in the token's secure element.
+- `id_ed25519_josef-ssh-key.pub` — public key, safe to distribute.
+
+Options in play:
+
+- **`-O resident`** — credential also lives *on* the YubiKey, so
+  `ssh-keygen -K` on a fresh machine can reconstruct the stub from just
+  the token. **This is what makes the "Adding to a new machine" flow above
+  work without moving any files.** Non-resident sk-keys would require
+  copying the stub over some other channel.
+- **`-O verify-required`** — PIN demanded at every new SSH auth. Combined
+  with `ControlPersist 4h` this is roughly one PIN per idle window per
+  host. Drop this flag if you'd rather have touch-only convenience.
+- **`-O application=ssh:josef`** — namespace inside the token. Lets you
+  hold multiple SSH credentials on one YubiKey (e.g. `ssh:josef`,
+  `ssh:work-only`) that `ssh-keygen -K` distinguishes.
+- **No passphrase** — omitted deliberately. The key is worthless without
+  the physical YubiKey; a disk passphrase would add nothing.
+
+#### 2. Load the credential into Windows' ssh-agent
+
+```powershell
+Set-Service -Name ssh-agent -StartupType Automatic
+Start-Service ssh-agent
+ssh-add $HOME\.ssh\id_ed25519_josef-ssh-key
+ssh-add -L
+# → sk-ssh-ed25519@openssh.com AAAA…== josef-ssh-key
+```
+
+From here, drop into the "Adding this key to a new machine" flow from step
+4 onwards to hydrate any WSL / Linux side.
+
+---
+
+### Reference: the bridge
+
+`~/.config/fish/conf.d/ssh-agent-bridge.fish` (tracked) auto-spawns on
+every fish start:
 
 ```fish
 set -gx SSH_AUTH_SOCK $HOME/.ssh/agent.sock
@@ -194,13 +277,10 @@ if test -x $npiperelay
 end
 ```
 
-Guard clause: on Arch (or anywhere without `/mnt/c/Tools/npiperelay.exe`) the
-`test -x` short-circuits and does nothing — the file is safe to sync
-verbatim.
+Guard clause: on Arch (or anywhere without `/mnt/c/Tools/npiperelay.exe`)
+the `test -x` short-circuits — the file is safe to sync verbatim.
 
-#### Bash (or zsh) — drop-in for `~/.bashrc`
-
-For anyone on the box using bash (or for machines that don't have fish):
+**Bash / zsh equivalent** for machines without fish — drop into `~/.bashrc`:
 
 ```bash
 # --- WSL → Windows ssh-agent bridge (YubiKey via npiperelay) ---
@@ -216,16 +296,11 @@ if [ -x "$NPIPERELAY" ]; then
 fi
 ```
 
-Verify the bridge works:
+---
 
-```bash
-ssh-add -l
-# → 256 SHA256:… josef-ssh-key (ED25519-SK)
-```
+### Reference: `~/.ssh/config`
 
-### 4. SSH config for one-touch-per-session behaviour
-
-`~/.ssh/config` (tracked in this repo) declares sensible defaults:
+Tracked in this repo. `Host *` defaults:
 
 ```
 Host *
@@ -241,22 +316,19 @@ Host *
 ```
 
 The `IdentityFile` line just tells `ssh` **which public key to offer** to
-each host — the actual signing goes through the agent → Windows → YubiKey.
-The stub file needs to be on disk for the `IdentityFile` reference (copy it
-over from Windows, or run `ssh-keygen -K` on a fresh box).
+each host — actual signing goes through agent → Windows → YubiKey. But
+`IdentitiesOnly yes` means the stub file must exist; without it, ssh
+refuses to fall back to the agent's list. This is why every new machine
+needs the `ssh-keygen -K` + copy step.
 
-Prep the sockets directory once:
+`ControlMaster` + `ControlPath ~/.ssh/sockets/%C` + `ControlPersist 4h`
+give you the one-touch-per-idle-window UX: first `ssh homelab-host` prompts for
+PIN + touch; every command against the same host for the next 4h idle
+reuses the muxed socket silently.
 
-```
-mkdir -p ~/.ssh/sockets
-chmod 700 ~/.ssh/sockets
-```
+---
 
-First connect to any host prompts PIN + touch. For the next 4 hours of idle
-time, every SSH, git, or Claude Code subprocess reuses the muxed connection
-silently.
-
-### 5. Deploy the public key to your servers
+### Deploy the public key to a new server
 
 On each target host:
 
@@ -266,34 +338,39 @@ echo "sk-ssh-ed25519@openssh.com AAAA…== josef-ssh-key" >> ~/.ssh/authorized_k
 chmod 600 ~/.ssh/authorized_keys
 ```
 
-Or `ssh-copy-id -i ~/.ssh/id_ed25519_josef-ssh-key.pub <host>` if the host
-already accepts password auth.
+Or `ssh-copy-id -i ~/.ssh/id_ed25519_josef-ssh-key.pub <host>` if password
+auth is temporarily on.
 
-### 6. Test
+---
+
+### Test end-to-end
 
 ```
-ssh -v <hostname>
+ssh -v homelab-host
 ```
 
-Expect a PIN prompt + touch on first connect (that's Windows' agent asking
-the token to sign), then instant reuse on subsequent invocations within
-`ControlPersist`.
+Expect a PIN + touch prompt on Windows on first connect, then instant
+reuse on any subsequent SSH/git/Claude Code within `ControlPersist`.
+
+---
 
 ### chezmoi / portability notes
 
 - `~/.ssh/config` — tracked as-is (`private_dot_ssh/private_config`), no
   templating.
-- The fish bridge snippet — tracked verbatim; safe because `npiperelay.exe`
-  is pinned at `C:\Tools\`, not a per-user path.
-- **No key material syncs.** The key never leaves the YubiKey. On a fresh
-  machine, if the stub file is missing, `ssh-keygen -K` regenerates it from
-  the token alone (PIN required).
-- **Arch / non-Windows Linux**: skip the bridge entirely. Native
-  `ssh-agent` + `ssh-add ~/.ssh/id_ed25519_josef-ssh-key` handles the
-  YubiKey via `libfido2`. The tracked fish file no-ops correctly there.
+- The fish bridge — tracked verbatim; safe because `npiperelay.exe` is
+  pinned at `C:\Tools\`, not a per-user path.
+- **No key material syncs.** The credential never leaves the YubiKey.
+  `ssh-keygen -K` reconstructs the stub file on any new machine from just
+  the token + PIN.
+- **Arch / non-Windows Linux** (future ThinkPad): skip the bridge
+  entirely. Native `ssh-agent` + `ssh-add ~/.ssh/id_ed25519_josef-ssh-key`
+  handles the YubiKey via `libfido2`. The tracked fish file no-ops
+  correctly there. The `ssh-keygen -K` step still applies — same command,
+  run in the Linux shell.
 - **`verify-required` trade-off**: PIN at every new muxed session. With
   `ControlPersist 4h`, that's once per idle window per host. Regenerate
-  without the flag if you want touch-only convenience.
+  the credential without the flag if you want touch-only convenience.
 
 ---
 
