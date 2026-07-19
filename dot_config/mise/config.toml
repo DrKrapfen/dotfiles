@@ -1,0 +1,31 @@
+# Reproducibility manifest — chezmoi + this file = fresh-machine rebuild
+[tools]
+node = "lts"
+go = "latest"
+terraform = "latest"
+kubectl = "latest"
+helm = "latest"
+k9s = "latest"
+neovim = "latest"
+lazygit = "latest"
+lazydocker = "latest"
+zellij = "latest"
+github-cli = "latest"
+
+# Modern CLI
+eza = "latest"
+bat = "latest"
+fd = "latest"
+ripgrep = "latest"
+zoxide = "latest"
+fzf = "latest"
+delta = "latest"
+bottom = "latest"
+
+# Extras (Phase 5) — may fall back to non-mise if registry lacks them
+yazi = "latest"
+glow = "latest"
+gping = "latest"
+k3d = "latest"
+chezmoi = "latest"
+# trippy is not in the mise registry — installed from GitHub release binary in Phase 5
