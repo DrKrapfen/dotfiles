@@ -28,4 +28,5 @@ glow = "latest"
 gping = "latest"
 k3d = "latest"
 chezmoi = "latest"
+tree-sitter = "latest"
 # trippy is not in the mise registry — installed from GitHub release binary in Phase 5
