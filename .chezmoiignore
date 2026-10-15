@@ -6,7 +6,6 @@ windows/
 .config/fish/functions/
 .config/fish/completions/
 .config/fish/conf.d/_*
-.config/fish/conf.d/*.env.fish
 .config/fish/fish_variables
 .config/fish/*.bak.*
 

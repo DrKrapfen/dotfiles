@@ -1,0 +1,5 @@
+# Stale fish snippets from the old standalone uv/atuin installers (both come
+# from mise now). They source files that no longer exist and break fish
+# startup if they survive a copy from an older machine.
+.config/fish/conf.d/uv.env.fish
+.config/fish/conf.d/atuin.env.fish

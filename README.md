@@ -120,12 +120,13 @@ wsl --shutdown
 ```
 
 It installs `npiperelay.exe` to `C:\Tools`, enables the `ssh-agent` service,
-installs *MesloLGLDZ Nerd Font*, writes `%USERPROFILE%\.wslconfig`
+installs *MesloLGS Nerd Font* (regular, Mono, Propo), writes `%USERPROFILE%\.wslconfig`
 (mirrored networking, no idle stop) and sets the Nerd Font on the Windows
 Terminal Ubuntu profile(s). Idempotent — re-run any time (open Windows
 Terminal once first so its settings.json exists). For Tide icons in VS Code's
-integrated terminal too, set `"terminal.integrated.fontFamily": "MesloLGLDZ
-Nerd Font"` in VS Code settings.
+integrated terminal too, set `"terminal.integrated.fontFamily": "MesloLGS
+Nerd Font"` in VS Code settings. Alacritty: `[font.normal] family =
+"MesloLGS Nerd Font Mono"` in `%APPDATA%\alacritty\alacritty.toml`.
 
 After `wsl --shutdown`, reopen Ubuntu: you land in fish, `docker ps` works
 without sudo, and `chezmoi` / `mise` are on PATH.

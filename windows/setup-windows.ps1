@@ -14,7 +14,7 @@
 $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'   # PS 5.1 progress bars make big downloads crawl
 $here     = Split-Path -Parent $MyInvocation.MyCommand.Path
-$fontFace = 'MesloLGLDZ Nerd Font'
+$fontFace = 'MesloLGS Nerd Font'   # Tide's recommended font; Alacritty uses the Mono variant
 $isAdmin  = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
                 [Security.Principal.WindowsBuiltInRole]::Administrator)
 
@@ -74,7 +74,7 @@ if (-not $svc) {
 # --- Meslo Nerd Font (per-user install, no admin needed) ----------------------
 Step "font: $fontFace"
 $userFonts = Join-Path $env:LOCALAPPDATA 'Microsoft\Windows\Fonts'
-if (Get-ChildItem $userFonts, "$env:WINDIR\Fonts" -Filter 'MesloLGLDZNerdFont-*.ttf' -ErrorAction SilentlyContinue) {
+if (Get-ChildItem $userFonts, "$env:WINDIR\Fonts" -Filter 'MesloLGSNerdFontMono-Regular.ttf' -ErrorAction SilentlyContinue) {
     Write-Host '    already installed'
 } else {
     $zip = Join-Path $work 'Meslo.zip'
@@ -84,13 +84,14 @@ if (Get-ChildItem $userFonts, "$env:WINDIR\Fonts" -Filter 'MesloLGLDZNerdFont-*.
     Expand-Archive -Force $zip $tmp
     New-Item -ItemType Directory -Force -Path $userFonts | Out-Null
     $reg = 'HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Fonts'
-    Get-ChildItem $tmp -Filter 'MesloLGLDZNerdFont-*.ttf' | ForEach-Object {
+    # regular, Mono and Propo variants (Alacritty uses "MesloLGS Nerd Font Mono")
+    Get-ChildItem $tmp -Filter 'MesloLGSNerdFont*-*.ttf' | ForEach-Object {
         $dst = Join-Path $userFonts $_.Name
         Copy-Item $_.FullName $dst -Force
         New-ItemProperty -Path $reg -Name "$($_.BaseName) (TrueType)" -Value $dst -PropertyType String -Force | Out-Null
     }
     Remove-Item -LiteralPath $zip, $tmp -Recurse -Force -ErrorAction SilentlyContinue
-    Write-Host '    installed (restart Windows Terminal to pick it up)'
+    Write-Host '    installed (restart your terminal to pick it up)'
 }
 
 # --- .wslconfig ---------------------------------------------------------------
