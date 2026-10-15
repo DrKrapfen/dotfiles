@@ -20,6 +20,12 @@ $isAdmin  = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIde
 
 function Step($msg) { Write-Host "==> $msg" -ForegroundColor Cyan }
 
+# Download/extract scratch dir. Built from LOCALAPPDATA (long path) instead of
+# %TEMP%, which is an 8.3 short path (C:\Users\J8069~1.GRU\...) when the username
+# contains a dot - PS 5.1's Remove-Item can trip over those.
+$work = Join-Path $env:LOCALAPPDATA 'Temp\dotfiles-setup'
+New-Item -ItemType Directory -Force -Path $work | Out-Null
+
 # --- npiperelay ---------------------------------------------------------------
 Step 'npiperelay'
 $relay = 'C:\Tools\npiperelay.exe'
@@ -32,13 +38,13 @@ if (Test-Path $relay) {
         # hardened images may not let normal users create folders under C:\
         try { Start-Process powershell -Verb RunAs -Wait -ArgumentList '-NoProfile', '-Command', "New-Item -ItemType Directory -Force -Path 'C:\Tools'; icacls 'C:\Tools' /grant '$($env:USERNAME):(OI)(CI)M'" } catch {}
     }
-    $zip = Join-Path $env:TEMP 'npiperelay.zip'
+    $zip = Join-Path $work 'npiperelay.zip'
     Invoke-WebRequest -UseBasicParsing -OutFile $zip `
         'https://github.com/jstarks/npiperelay/releases/latest/download/npiperelay_windows_amd64.zip'
-    $tmp = Join-Path $env:TEMP 'npiperelay'
+    $tmp = Join-Path $work 'npiperelay'
     Expand-Archive -Force $zip $tmp
     Copy-Item (Join-Path $tmp 'npiperelay.exe') $relay
-    Remove-Item -Recurse -Force $zip, $tmp
+    Remove-Item -LiteralPath $zip, $tmp -Recurse -Force -ErrorAction SilentlyContinue
     Write-Host "    installed $relay"
 }
 
@@ -71,10 +77,10 @@ $userFonts = Join-Path $env:LOCALAPPDATA 'Microsoft\Windows\Fonts'
 if (Get-ChildItem $userFonts, "$env:WINDIR\Fonts" -Filter 'MesloLGLDZNerdFont-*.ttf' -ErrorAction SilentlyContinue) {
     Write-Host '    already installed'
 } else {
-    $zip = Join-Path $env:TEMP 'Meslo.zip'
+    $zip = Join-Path $work 'Meslo.zip'
     Invoke-WebRequest -UseBasicParsing -OutFile $zip `
         'https://github.com/ryanoasis/nerd-fonts/releases/latest/download/Meslo.zip'
-    $tmp = Join-Path $env:TEMP 'Meslo'
+    $tmp = Join-Path $work 'Meslo'
     Expand-Archive -Force $zip $tmp
     New-Item -ItemType Directory -Force -Path $userFonts | Out-Null
     $reg = 'HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Fonts'
@@ -83,7 +89,7 @@ if (Get-ChildItem $userFonts, "$env:WINDIR\Fonts" -Filter 'MesloLGLDZNerdFont-*.
         Copy-Item $_.FullName $dst -Force
         New-ItemProperty -Path $reg -Name "$($_.BaseName) (TrueType)" -Value $dst -PropertyType String -Force | Out-Null
     }
-    Remove-Item -Recurse -Force $zip, $tmp
+    Remove-Item -LiteralPath $zip, $tmp -Recurse -Force -ErrorAction SilentlyContinue
     Write-Host '    installed (restart Windows Terminal to pick it up)'
 }
 
