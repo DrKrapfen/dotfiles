@@ -1,0 +1,21 @@
+{{- /* Per-machine data. Answered once on `chezmoi init`, stored in ~/.config/chezmoi/chezmoi.toml (never in git). */ -}}
+{{- $isWSL := and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") -}}
+{{- $isWork := promptBoolOnce . "isWork" "Work machine? (ansible, krb5, work git identity, usage-push)" -}}
+{{- $workName := "" -}}
+{{- $workEmail := "" -}}
+{{- $usageHost := "" -}}
+{{- $usageDir := "" -}}
+{{- if $isWork -}}
+{{-   $workName = promptStringOnce . "workName" "Work git user.name" -}}
+{{-   $workEmail = promptStringOnce . "workEmail" "Work git user.email" -}}
+{{-   $usageHost = promptStringOnce . "usageHost" "usage-push: ssh host alias of the usage mirror" -}}
+{{-   $usageDir = promptStringOnce . "usageDir" "usage-push: remote dir for THIS machine (unique per machine, no spaces)" -}}
+{{- end -}}
+
+[data]
+    isWSL = {{ $isWSL }}
+    isWork = {{ $isWork }}
+    workName = {{ $workName | quote }}
+    workEmail = {{ $workEmail | quote }}
+    usageHost = {{ $usageHost | quote }}
+    usageDir = {{ $usageDir | quote }}

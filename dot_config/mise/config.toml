@@ -1,16 +1,20 @@
-# Reproducibility manifest — chezmoi + this file = fresh-machine rebuild
+# Reproducibility manifest — chezmoi + this file = fresh-machine rebuild.
+# `chezmoi apply` re-runs `mise install` whenever this file changes.
 [tools]
 node = "lts"
 go = "latest"
-terraform = "latest"
-kubectl = "latest"
-helm = "latest"
-k9s = "latest"
-neovim = "latest"
+opentofu = "latest"
+neovim = "latest"          # terminal fallback editor (EDITOR when `code` isn't on PATH)
 lazygit = "latest"
 lazydocker = "latest"
 zellij = "latest"
 github-cli = "latest"
+chezmoi = "latest"
+
+# Python / JS package managers + shell history
+uv = "latest"
+pnpm = "latest"
+atuin = "latest"
 
 # Modern CLI
 eza = "latest"
@@ -21,12 +25,10 @@ zoxide = "latest"
 fzf = "latest"
 delta = "latest"
 bottom = "latest"
+btop = "latest"
+jq = "latest"
 
-# Extras (Phase 5) — may fall back to non-mise if registry lacks them
+# Extras
 yazi = "latest"
 glow = "latest"
 gping = "latest"
-k3d = "latest"
-chezmoi = "latest"
-tree-sitter = "latest"
-# trippy is not in the mise registry — installed from GitHub release binary in Phase 5

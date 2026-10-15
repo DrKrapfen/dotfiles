@@ -1,0 +1,77 @@
+{{ if eq .chezmoi.os "linux" -}}
+#!/usr/bin/env bash
+# System layer: apt packages, docker-ce, login shell, WSL tweaks.
+# run_onchange_: re-runs whenever this rendered script changes. Idempotent.
+set -euo pipefail
+USER="${USER:-$(id -un)}"
+
+{{ if not (has .chezmoi.osRelease.id (list "ubuntu" "debian")) -}}
+echo "system-packages: no recipe for '{{ .chezmoi.osRelease.id }}' — install the README package list by hand" >&2
+exit 0
+{{ end -}}
+
+# Pass DEBIAN_FRONTEND explicitly — Ubuntu 26.04's sudo-rs ignores `sudo -E`
+APT="sudo DEBIAN_FRONTEND=noninteractive apt-get -y -qq -o Dpkg::Use-Pty=0"
+
+# --- Base packages ---
+pkgs=(git curl unzip ca-certificates build-essential fish rsync htop git-filter-repo cron)
+{{- if .isWSL }}
+pkgs+=(socat)                      # WSL → Windows ssh-agent bridge
+{{- end }}
+{{- if .isWork }}
+pkgs+=(krb5-user libkrb5-dev)      # Kerberos (work AD); realm: sudo dpkg-reconfigure krb5-config
+{{- end }}
+$APT update
+$APT install "${pkgs[@]}"
+
+# --- Docker CE (upstream repo) ---
+if ! command -v docker >/dev/null 2>&1; then
+    sudo install -m 0755 -d /etc/apt/keyrings
+    sudo curl -fsSL https://download.docker.com/linux/{{ .chezmoi.osRelease.id }}/gpg -o /etc/apt/keyrings/docker.asc
+    sudo chmod a+r /etc/apt/keyrings/docker.asc
+    . /etc/os-release
+    sudo tee /etc/apt/sources.list.d/docker.sources >/dev/null <<SRC
+Types: deb
+URIs: https://download.docker.com/linux/{{ .chezmoi.osRelease.id }}
+Suites: ${UBUNTU_CODENAME:-$VERSION_CODENAME}
+Components: stable
+Signed-By: /etc/apt/keyrings/docker.asc
+SRC
+    $APT update
+    $APT install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+fi
+if [ -d /run/systemd/system ]; then
+    sudo systemctl enable --now docker >/dev/null 2>&1 || true
+fi
+# (Docker Desktop's WSL integration provides `docker` without a docker group)
+getent group docker >/dev/null || sudo groupadd docker
+if ! id -nG "$USER" | grep -qw docker; then
+    sudo usermod -aG docker "$USER"
+    echo "system-packages: added $USER to the docker group — takes effect after a re-login{{ if .isWSL }} (wsl.exe --shutdown){{ end }}"
+fi
+
+# --- Login shell: fish ---
+FISH="$(command -v fish)"
+if [ "$(getent passwd "$USER" | cut -d: -f7)" != "$FISH" ]; then
+    sudo chsh -s "$FISH" "$USER"
+fi
+
+# --- SSH ControlMaster socket dir (~/.ssh itself is copied by hand) ---
+install -d -m 700 "$HOME/.ssh" "$HOME/.ssh/sockets"
+
+{{ if .isWSL -}}
+# --- WSL: passwordless sudo ---
+if ! sudo test -f /etc/sudoers.d/nopasswd; then
+    tmp="$(mktemp)"
+    echo "$USER ALL=(ALL) NOPASSWD:ALL" > "$tmp"
+    sudo visudo -cqf "$tmp" >/dev/null
+    sudo install -m 0440 -o root -g root "$tmp" /etc/sudoers.d/nopasswd
+    rm -f "$tmp"
+fi
+
+# --- WSL: systemd is required for docker/cron autostart ---
+if ! grep -qsE '^\s*systemd\s*=\s*true' /etc/wsl.conf; then
+    echo "system-packages: WARNING — systemd not enabled in /etc/wsl.conf; add '[boot] systemd=true' and run 'wsl.exe --shutdown'" >&2
+fi
+{{ end -}}
+{{ end -}}

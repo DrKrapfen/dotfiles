@@ -1,5 +1,40 @@
+# Repo-only files — never deployed into $HOME
+README.md
+windows/
+
 # Auto-installed plugin material — reconstituted by installers on restore
 .config/fish/functions/
+.config/fish/completions/
 .config/fish/conf.d/_*
-.config/fish/conf.d/atuin.env.fish
-.config/atuin/
+.config/fish/conf.d/*.env.fish
+.config/fish/fish_variables
+.config/fish/*.bak.*
+
+# Guards — secrets and machine state that must never be `chezmoi add`ed
+# (this repo is PUBLIC)
+.ssh/
+.claude.json
+.claude/.credentials.json
+.claude/projects/
+.claude/history.jsonl
+.claude/backups/
+.claude/daemon/
+.grok/auth.json
+.grok/mcp_credentials.json
+.grok/sessions/
+.grok/last-copy.txt
+.config/gh/hosts.yml
+.config/tailscale/
+.local/share/atuin/
+.ansible/
+**/*:Zone.Identifier
+
+{{ if not .isWSL -}}
+# WSL → Windows ssh-agent bridge only makes sense under WSL
+.config/fish/conf.d/ssh-agent-bridge.fish
+{{ end -}}
+
+{{ if not .isWork -}}
+.config/git/work.gitconfig
+.local/bin/usage-push
+{{ end -}}

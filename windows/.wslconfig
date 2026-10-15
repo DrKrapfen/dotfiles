@@ -1,0 +1,16 @@
+# %USERPROFILE%\.wslconfig - copied there by setup-windows.ps1.
+# Takes effect after `wsl --shutdown`.
+[wsl2]
+# Mirrored networking: WSL shares the Windows host's interfaces, so Tailscale
+# (running on Windows) and localhost ports work in both directions.
+networkingMode=Mirrored
+# Never stop the VM when idle
+vmIdleTimeout=-1
+
+[general]
+# Never auto-stop the distro when the last terminal closes (keeps docker,
+# cron/usage-push and the ssh-agent bridge alive)
+instanceIdleTimeout=-1
+
+[experimental]
+hostAddressLoopback=true

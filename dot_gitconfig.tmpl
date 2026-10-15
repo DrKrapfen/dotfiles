@@ -1,0 +1,35 @@
+[user]
+	name = josef
+	email = josef7g@gmail.com
+[init]
+	defaultBranch = main
+[pull]
+	rebase = false
+[core]
+	pager = delta
+[interactive]
+	diffFilter = delta --color-only
+[delta]
+	navigate = true
+	syntax-theme = Catppuccin Mocha
+[merge]
+	conflictstyle = zdiff3
+[diff]
+	colorMoved = default
+{{ if .isWork -}}
+# Work identity for Azure DevOps remotes (any org, SSH or HTTPS).
+# Name/email live in ~/.config/git/work.gitconfig, rendered from per-machine
+# chezmoi data — never committed to this public repo.
+[includeIf "hasconfig:remote.*.url:git@ssh.dev.azure.com:v3/**"]
+	path = ~/.config/git/work.gitconfig
+[includeIf "hasconfig:remote.*.url:ssh://git@ssh.dev.azure.com/**"]
+	path = ~/.config/git/work.gitconfig
+[includeIf "hasconfig:remote.*.url:*@vs-ssh.visualstudio.com:v3/**"]
+	path = ~/.config/git/work.gitconfig
+[includeIf "hasconfig:remote.*.url:https://dev.azure.com/**"]
+	path = ~/.config/git/work.gitconfig
+[includeIf "hasconfig:remote.*.url:https://*@dev.azure.com/**"]
+	path = ~/.config/git/work.gitconfig
+[includeIf "hasconfig:remote.*.url:https://*.visualstudio.com/**"]
+	path = ~/.config/git/work.gitconfig
+{{ end -}}

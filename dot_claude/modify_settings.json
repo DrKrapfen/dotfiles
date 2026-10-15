@@ -1,0 +1,60 @@
+{{- /* chezmoi:modify-template */ -}}
+{{- /*
+  Seeds the portable Claude Code defaults below into ~/.claude/settings.json
+  (only keys that are missing) and merges the atuin hooks. Everything else
+  (autoMode, /config changes, other tools' hooks) is left untouched.
+*/ -}}
+{{- $s := dict -}}
+{{- if .chezmoi.stdin | trim -}}
+{{-   $s = .chezmoi.stdin | fromJson -}}
+{{- end -}}
+{{- /* atuin records Claude's Bash calls (what `atuin hook install claude-code` sets up),
+       guarded so a Claude started without mise on PATH doesn't error on every call */ -}}
+{{- $atuinCmd := "command -v atuin >/dev/null 2>&1 && atuin hook claude-code || true" -}}
+{{- $atuin := list (dict "matcher" "Bash" "hooks" (list (dict "type" "command" "command" $atuinCmd))) -}}
+{{- /* Defaults: only SEEDED when missing — changes made later via /config win. */ -}}
+{{- $top := dict
+      "model" "opus[1m]"
+      "effortLevel" "xhigh"
+      "enableWorkflows" true
+      "skipDangerousModePermissionPrompt" true
+      "skipWorkflowUsageWarning" true
+      "theme" "auto"
+      "teammateMode" "auto"
+      "inputNeededNotifEnabled" true
+      "agentPushNotifEnabled" false -}}
+{{- range $k, $v := $top -}}
+{{-   if not (hasKey $s $k) -}}{{- $s = setValueAtPath $k $v $s -}}{{- end -}}
+{{- end -}}
+{{- /* two-level: [parent, child, value] */ -}}
+{{- $nested := list
+      (list "permissions" "defaultMode" "auto")
+      (list "env" "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS" "1")
+      (list "skillOverrides" "find-skills" "off")
+      (list "skillOverrides" "orca-cli" "off") -}}
+{{- range $n := $nested -}}
+{{-   if not (hasKey (dig (index $n 0) dict $s) (index $n 1)) -}}
+{{-     $s = setValueAtPath (printf "%s.%s" (index $n 0) (index $n 1)) (index $n 2) $s -}}
+{{-   end -}}
+{{- end -}}
+{{- /* per-model effort */ -}}
+{{- $effort := dict "claude-opus-5-5" "high" "claude-fable-5-1" "high" "claude-opus-5" "xhigh" -}}
+{{- range $m, $e := $effort -}}
+{{-   if not (hasKey (dig "modelSettings" $m dict $s) "effortLevel") -}}
+{{-     $s = setValueAtPath (printf "modelSettings.%s.effortLevel" $m) $e $s -}}
+{{-   end -}}
+{{- end -}}
+{{- /* hooks: strip existing atuin hooks (inner level), keep everyone else's
+       (Orca, plugins, …), drop groups left empty, then append ours */ -}}
+{{- range $ev := list "PreToolUse" "PostToolUse" "PostToolUseFailure" -}}
+{{-   $kept := list -}}
+{{-   range $group := (dig "hooks" $ev (list) $s) -}}
+{{-     $inner := list -}}
+{{-     range $h := (get $group "hooks" | default list) -}}
+{{-       if not (contains "atuin hook claude-code" (toString (get $h "command"))) -}}{{- $inner = append $inner $h -}}{{- end -}}
+{{-     end -}}
+{{-     if $inner -}}{{- $kept = append $kept (set (deepCopy $group) "hooks" $inner) -}}{{- end -}}
+{{-   end -}}
+{{-   $s = setValueAtPath (printf "hooks.%s" $ev) (concat $kept $atuin) $s -}}
+{{- end -}}
+{{- $s | toPrettyJson -}}

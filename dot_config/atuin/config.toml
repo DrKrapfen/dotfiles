@@ -1,0 +1,11 @@
+# Only non-default settings — atuin fills in the rest.
+# History stays local (no sync); copy ~/.local/share/atuin/history.db by hand.
+enter_accept = true
+search_mode = "daemon-fuzzy"
+
+[sync]
+records = true
+
+[daemon]
+enabled = true
+autostart = true

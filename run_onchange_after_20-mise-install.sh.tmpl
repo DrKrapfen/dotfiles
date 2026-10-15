@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Rebuild the toolset whenever the mise manifest changes.
+# manifest hash: {{ include "dot_config/mise/config.toml" | sha256sum }}
+set -euo pipefail
+MISE="$(command -v mise || echo "$HOME/.local/bin/mise")"
+if [ ! -x "$MISE" ]; then
+    curl -fsSL https://mise.run | sh
+    MISE="$HOME/.local/bin/mise"
+fi
+"$MISE" install --yes

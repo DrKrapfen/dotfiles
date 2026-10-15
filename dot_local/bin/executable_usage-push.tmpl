@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# usage-push: copy agent usage logs to the usage mirror host. One attempt, no retries.
+# Managed by chezmoi (work machines only); host/dir come from per-machine chezmoi
+# data. Run hourly from cron (installed by run_onchange_after_50-work-tools).
+# Needs a Host block for the alias in ~/.ssh/config with a non-FIDO key (cron has no agent).
+set -u
+HOST={{ .usageHost | squote }}
+DEST={{ .usageDir | squote }}
+LOCK="${XDG_RUNTIME_DIR:-/tmp}/usage-push.lock"
+LOG="$HOME/.cache/usage-push.log"
+mkdir -p "$(dirname "$LOG")"
+exec >>"$LOG" 2>&1
+[ -n "$HOST" ] && [ -n "$DEST" ] || { echo "$(date -Is) skip: usageHost/usageDir not set (chezmoi init --prompt)"; exit 0; }
+exec 9>"$LOCK"; flock -n 9 || exit 0     # previous run still going: skip, never queue
+
+SSH=(ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=10 -o ServerAliveCountMax=2)
+
+# Tailscale down / host unreachable: log one line and stop until the next hourly run.
+if ! "${SSH[@]}" "$HOST" "mkdir -p '$DEST/claude/projects' '$DEST/hermes' '$DEST/grok/sessions'" 2>/dev/null; then
+  echo "$(date -Is) skip: $HOST unreachable"; exit 0
+fi
+
+RS=(rsync -a --no-g --chmod=D755,F644 --partial --timeout=60 -e "${SSH[*]}")
+rc=0
+
+# Claude Code transcripts (append-only JSONL)
+[ -d "$HOME/.claude/projects" ] && { "${RS[@]}" "$HOME/.claude/projects/" "$HOST:$DEST/claude/projects/" || rc=$?; }
+
+# Grok Build sessions
+[ -d "$HOME/.grok/sessions" ] && { "${RS[@]}" "$HOME/.grok/sessions/" "$HOST:$DEST/grok/sessions/" || rc=$?; }
+
+# Hermes state.db: take a consistent snapshot first (a live SQLite file + WAL can't be copied safely)
+if [ -f "$HOME/.hermes/state.db" ]; then
+  SNAP="$(mktemp -d)"
+  if python3 - "$HOME/.hermes/state.db" "$SNAP/state.db" <<'PY'
+import sqlite3, sys
+src = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True, timeout=30)
+dst = sqlite3.connect(sys.argv[2]); src.backup(dst); dst.close(); src.close()
+PY
+  then "${RS[@]}" "$SNAP/state.db" "$HOST:$DEST/hermes/state.db" || rc=$?
+  else echo "$(date -Is) warn: hermes snapshot failed"; rc=1
+  fi
+  rm -rf "$SNAP"
+fi
+
+echo "$(date -Is) done rc=$rc hermes_db=$([ -f "$HOME/.hermes/state.db" ] && echo yes || echo missing)"
+exit 0
